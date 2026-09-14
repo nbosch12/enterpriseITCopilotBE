@@ -1,0 +1,51 @@
+server:
+  port: 8055
+
+spring:
+  application:
+    name: docupedia-grounding-btp
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  docupedia:
+    base-url: https://inside-docupedia.bosch.com/confluence
+    bearer-token: ${DOCUPEDIA_BEARER_TOKEN:}
+    page-size: ${DOCUPEDIA_PAGE_SIZE:100}
+  chunking:
+    max-chars: ${CHUNK_MAX_CHARS:3000}
+    overlap-chars: ${CHUNK_OVERLAP_CHARS:300}
+  s3:
+    endpoint: ${S3_ENDPOINT:https://s3-eu-central-1.amazonaws.com}
+    region: ${S3_REGION:eu-central-1}
+    bucket: ${S3_BUCKET:hcp-b086f813-ced8-4222-b774-f296bb0f2998}
+    access-key: ${S3_ACCESS_KEY:}
+    secret-key: ${S3_SECRET_KEY:}
+    path-style-access: ${S3_PATH_STYLE_ACCESS:true}
+  sap-ai-core:
+    token-url: ${AICORE_TOKEN_URL:https://rb-hackathon-d.authentication.eu10.hana.ondemand.com/oauth/token}
+    client-id: ${AICORE_CLIENT_ID:}
+    client-secret: ${AICORE_CLIENT_SECRET:}
+    api-url: ${AICORE_API_URL:https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com}
+    resource-group: ${AICORE_RESOURCE_GROUP:enterprise-it-copilot-rg}
+    s3-generic-secret-name: ${AICORE_S3_GENERIC_SECRET:docu-secret-3}
+    #orchestration-deployment-id: ${AICORE_ORCHESTRATION_DEPLOYMENT_ID:d562142eca427729}
+    embedding-deployment-id: ${AICORE_EMBEDDING_DEPLOYMENT_ID:df3d5376da35d96d}
+    vector-search-prefix: ${AICORE_VECTOR_SEARCH_PREFIX:chunk-}
+    # This is the orchestration deployment ID.
+    # It is used for both /completion and /v2/embeddings.
+    orchestration-deployment-id: ${AICORE_ORCHESTRATION_DEPLOYMENT_ID:d263aa3a04b90a25}
+    # This is the embedding model name inside orchestration config.
+    # Do not put deployment ID here.
+    embedding-model-name: ${AICORE_EMBEDDING_MODEL_NAME:text-embedding-3-large}
+    llm-model-name: gpt-5.6-sol
+  azure-monitor:
+    enabled: ${AZURE_MONITOR_ENABLED:true}
+    workspace-id: ${AZURE_LOG_ANALYTICS_WORKSPACE_ID:8e40d7ec-a1ca-4ae1-aa69-7defed97d6c5}
+    tenant-id: ${AZURE_TENANT_ID:0ae51e19-07c8-4e4b-bb6d-648ee58410f4}
+    client-id: ${AZURE_CLIENT_ID:}
+    client-secret: ${AZURE_CLIENT_SECRET:}

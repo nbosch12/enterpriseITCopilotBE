@@ -1,0 +1,19 @@
+{
+  "xsappname": "docupedia-grounding-api",
+  "tenant-mode": "dedicated",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.User",
+      "description": "Use Docupedia Grounding API"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "User",
+      "description": "Docupedia Grounding API User",
+      "scope-references": [
+        "$XSAPPNAME.User"
+      ]
+    }
+  ]
+}
