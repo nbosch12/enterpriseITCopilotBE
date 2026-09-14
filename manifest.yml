@@ -1,0 +1,10 @@
+applications:
+  - name: docupedia-grounding-api
+    memory: 1G
+    instances: 1
+    path: target/docupedia-grounding-btp-0.0.1-SNAPSHOT.jar
+    buildpacks:
+      - sap_java_buildpack_jakarta
+    env:
+      TARGET_RUNTIME: main
+      SPRING_PROFILES_ACTIVE: 'cloud'
