@@ -30,7 +30,7 @@ public class AzureSpringAppLogServiceIT {
     public void testGetExceptionsToday() {
         log.info("Testing exception retrieval from Azure...");
 
-        StepVerifier.create(azureSpringAppLogService.getAppLogs(null, 10, "test"))
+        StepVerifier.create(azureSpringAppLogService.getAppLogs(null, 10, "test", "1h"))
                 .assertNext(result -> {
                     assertNotNull(result);
                     log.info("Query result: Total exceptions={}, Apps={}",
@@ -52,7 +52,7 @@ public class AzureSpringAppLogServiceIT {
     public void testGetExceptionsByAppName() {
         log.info("Testing exception retrieval filtered by app name...");
 
-        StepVerifier.create(azureSpringAppLogService.getAppLogs("my-app", 5, "test"))
+        StepVerifier.create(azureSpringAppLogService.getAppLogs("my-app", 5, "test", "1h"))
                 .assertNext(result -> {
                     assertNotNull(result);
                     log.info("Filtered results for app 'my-app': {}", result.getTotalCount());
@@ -67,7 +67,7 @@ public class AzureSpringAppLogServiceIT {
     public void testGetExceptionsWithLimit() {
         log.info("Testing exception retrieval with custom limit...");
 
-        StepVerifier.create(azureSpringAppLogService.getAppLogs(null, 20, "test"))
+        StepVerifier.create(azureSpringAppLogService.getAppLogs(null, 20, "test", "1h"))
                 .assertNext(result -> {
                     assertNotNull(result);
                     assert result.getLatestExceptions().size() <= 20;
