@@ -31,10 +31,11 @@ public class OpsLogController {
     public Mono<LogQueryResult> getApplicationLogs(
             @RequestParam(required = false) String appName,
             @RequestParam(defaultValue = "10") int limit,
-            @RequestParam(required = false) String keywordToSearch) {
+            @RequestParam(required = false) String keywordToSearch,
+            @RequestParam(required = false, defaultValue = "1h") String timeDuration) {
 
         log.info("Fetching exceptions for today. App: {}, Limit: {}", appName, limit);
-        return azureSpringAppLogService.getAppLogs(appName, limit, keywordToSearch);
+        return azureSpringAppLogService.getAppLogs(appName, limit, keywordToSearch, timeDuration);
     }
 }
 
