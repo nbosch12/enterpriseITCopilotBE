@@ -82,7 +82,7 @@ public class AzureSpringAppLogService {
      * @param limit   number of latest exceptions to return
      * @return Mono with log query result
      */
-    public Mono<LogQueryResult> getAppLogs(String appName, int limit, String keywordToSearch) {
+    public Mono<LogQueryResult> getAppLogs(String appName, int limit, String keywordToSearch, String timeDuration) {
         if (!appProperties.getAzureMonitor().isEnabled()) {
             return Mono.just(createDisabledResult());
         }
@@ -103,7 +103,7 @@ public class AzureSpringAppLogService {
         }
 
         int safeLimit = Math.max(1, Math.min(limit, 100));
-        String query = buildBusinessQuery(appName, keywordToSearch);
+        String query = buildBusinessQuery(appName, keywordToSearch, timeDuration);
 
         log.info(
                 "Executing Azure Monitor exception query. App: {}, Limit: {}",
@@ -166,15 +166,17 @@ public class AzureSpringAppLogService {
     /**
      * Build query to fetch logs from Azure Monitor for today, optionally filtered by app name and keyword.
      */
-    private String buildBusinessQuery(String appName, String keywordToSearch) {
+    private String buildBusinessQuery(String appName, String keywordToSearch, String timeDuration) {
+
+        String safeDuration = sanitizeTimeDuration(timeDuration);
 
         StringBuilder query = new StringBuilder(
                 "union AppTraces, AppExceptions\n" +
-                        "| where TimeGenerated >= ago(6h)\n"
+                        "| where TimeGenerated >= ago(" + safeDuration + ")\n"
         );
 
         if (keywordToSearch != null && !keywordToSearch.isBlank()) {
-            query//.append("| where SeverityLevel >= 1 ")
+            query.append("| where SeverityLevel >= 1 ")
                     .append("| where Message has \"")
                     .append(keywordToSearch.replace("\"", "\\\""))
                     .append("\"\n");
@@ -192,6 +194,22 @@ public class AzureSpringAppLogService {
                 .append("| order by TimeGenerated desc");
 
         return query.toString();
+    }
+
+    private String sanitizeTimeDuration(String timeDuration) {
+        if (timeDuration == null || timeDuration.isBlank()) {
+            return "6h";
+        }
+
+        String value = timeDuration.trim().toLowerCase();
+
+        // Allow only simple Kusto durations like: 15m, 6h, 1d, 2w
+        if (value.matches("^\\d+[mhdw]$")) {
+            return value;
+        }
+
+        log.warn("Invalid timeDuration '{}', falling back to 6h", timeDuration);
+        return "6h";
     }
 /*
 

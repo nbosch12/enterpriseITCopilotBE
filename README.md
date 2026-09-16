@@ -1,4 +1,4 @@
-# Docupedia Grounding on SAP BTP with Spring Boot, S3 Object Store, and SAP AI Core
+# Enterprise Copilot Backend in SAP BTP with Spring Boot, S3 Object Store, and SAP AI Core
 
 This is a ready-to-customize sample project for a document grounding / RAG backend.
 

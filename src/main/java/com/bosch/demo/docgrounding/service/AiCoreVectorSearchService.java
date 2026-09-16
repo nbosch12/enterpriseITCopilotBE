@@ -1,6 +1,7 @@
 package com.bosch.demo.docgrounding.service;
 
 import com.bosch.demo.docgrounding.config.AppProperties;
+import com.bosch.demo.docgrounding.model.ConversationTurn;
 import com.bosch.demo.docgrounding.model.VectorAskRequest;
 import com.bosch.demo.docgrounding.model.VectorAskResponse;
 import com.bosch.demo.docgrounding.model.VectorMatch;
@@ -21,21 +22,25 @@ import reactor.core.scheduler.Schedulers;
 public class AiCoreVectorSearchService {
 
     private static final int DEFAULT_TOP_K = 5;
+    private static final int DEFAULT_HISTORY_TURNS = 6;
 
     private final WebClient webClient;
     private final AppProperties properties;
     private final AiCoreTokenService tokenService;
     private final ObjectMapper objectMapper;
+    private final ConversationMemoryService conversationMemoryService;
 
     public AiCoreVectorSearchService(
             WebClient.Builder builder,
             AppProperties properties,
             AiCoreTokenService tokenService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ConversationMemoryService conversationMemoryService) {
 
         this.properties = properties;
         this.tokenService = tokenService;
         this.objectMapper = objectMapper;
+        this.conversationMemoryService = conversationMemoryService;
 
         String apiUrl = properties.getSapAiCore().getApiUrl();
         if (apiUrl == null || apiUrl.isBlank()) {
@@ -50,7 +55,8 @@ public class AiCoreVectorSearchService {
             return Mono.just(new VectorAskResponse(
                     "Vector search failed: question must not be empty",
                     List.of(),
-                    ""));
+                    "",
+                    null));
         }
 
         // Determine repository ID - prefer repositoryId, fallback to s3Prefix
@@ -66,11 +72,22 @@ public class AiCoreVectorSearchService {
                 return Mono.just(new VectorAskResponse(
                         "Vector search failed: repositoryId or s3Prefix must be provided",
                         List.of(),
-                        ""));
+                        "",
+                        request.sessionId()));
             }
         }
 
-        int topK = sanitizeBound(request.topK(), DEFAULT_TOP_K, 1, 20);
+        final String sessionId = request.sessionId();
+        final boolean useHistory = request.useHistory() == null || request.useHistory();
+        final int topK = sanitizeBound(request.topK(), DEFAULT_TOP_K, 1, 20);
+        final int historyTurns = sanitizeBound(request.historyTurns(), DEFAULT_HISTORY_TURNS, 0, 20);
+
+        // Load conversation history if enabled
+        List<ConversationTurn> history = useHistory && sessionId != null && !sessionId.isBlank()
+                ? conversationMemoryService.getRecentTurns(sessionId, historyTurns)
+                : List.of();
+
+        String historyText = formatConversationHistory(history);
 
         return tokenService.getAccessToken()
                 .flatMap(accessToken ->
@@ -78,14 +95,25 @@ public class AiCoreVectorSearchService {
                             accessToken,
                             request.question(),
                             repositoryId,
-                            topK))
+                            topK,
+                            sessionId,
+                            historyText))
                             .subscribeOn(Schedulers.boundedElastic()))
+                .map(response -> {
+                    // Store the new user question and assistant answer in session history
+                    if (sessionId != null && !sessionId.isBlank()) {
+                        conversationMemoryService.addUserTurn(sessionId, request.question());
+                        conversationMemoryService.addAssistantTurn(sessionId, response.answer());
+                    }
+                    return response;
+                })
                 .onErrorResume(ex -> {
                     log.error("Vector search failed", ex);
                     return Mono.just(new VectorAskResponse(
                             "Vector search failed: " + ex.getMessage(),
                             List.of(),
-                            ""));
+                            "",
+                            sessionId));
                 });
     }
 
@@ -93,7 +121,9 @@ public class AiCoreVectorSearchService {
             String accessToken,
             String question,
             String repositoryId,
-            int topK) {
+            int topK,
+            String sessionId,
+            String conversationHistory) {
 
         try {
             AppProperties.SapAiCore ai = properties.getSapAiCore();
@@ -104,7 +134,8 @@ public class AiCoreVectorSearchService {
                 return new VectorAskResponse(
                         "Grounding search failed: orchestration-deployment-id must be configured",
                         List.of(),
-                        "");
+                        "",
+                        sessionId);
             }
 
             // --- LLM module ---
@@ -129,12 +160,10 @@ public class AiCoreVectorSearchService {
                             "output_param", "grounding_output",
                             "filters", List.of(groundingFilter)));
 
-            // --- Templating module: prompt template with placeholders ---
+            // --- Templating module: prompt template with conversation history and grounding ---
+            String systemPrompt = buildSystemPrompt(conversationHistory);
             List<Map<String, Object>> promptTemplate = List.of(
-                    Map.of("role", "system", "content",
-                            "Answer only from the grounded document context below.\n" +
-                            "{{?grounding_output}}\n" +
-                            "If the context does not contain enough information, say so."),
+                    Map.of("role", "system", "content", systemPrompt),
                     Map.of("role", "user", "content", "{{?user_query}}"));
 
             Map<String, Object> templatingModuleConfig = Map.of(
@@ -183,7 +212,7 @@ public class AiCoreVectorSearchService {
             // Extract grounding matches/context from response
             List<VectorMatch> matches = extractGroundingMatches(responseBody);
 
-            return new VectorAskResponse(answer, matches, responseBody);
+            return new VectorAskResponse(answer, matches, responseBody, sessionId);
 
         } catch (Exception ex) {
             log.error("Grounding query failed", ex);
@@ -294,6 +323,50 @@ public class AiCoreVectorSearchService {
         }
 
         return normalized.substring(0, maxLength) + "...";
+    }
+
+    /**
+     * Format conversation history into a readable text string for inclusion in the LLM prompt.
+     */
+    private String formatConversationHistory(List<ConversationTurn> turns) {
+        if (turns == null || turns.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (ConversationTurn turn : turns) {
+            sb.append(turn.role().toUpperCase())
+                    .append(": ")
+                    .append(turn.content())
+                    .append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Build a system prompt that incorporates conversation history and grounding instructions.
+     */
+    private String buildSystemPrompt(String conversationHistory) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("You are a context-aware assistant that answers questions based on grounded document context. ");
+        prompt.append("Use the conversation history to understand the topic and context, ");
+        prompt.append("then provide answers primarily from the grounded document content.\n\n");
+
+        if (conversationHistory != null && !conversationHistory.isBlank()) {
+            prompt.append("Conversation History:\n");
+            prompt.append(conversationHistory);
+            prompt.append("\n");
+        }
+
+        prompt.append("Grounded Document Context:\n");
+        prompt.append("{{?grounding_output}}\n\n");
+        prompt.append("Instructions:\n");
+        prompt.append("- Answer based on the grounded documents provided above.\n");
+        prompt.append("- If the context does not contain enough information to answer, clearly say so.\n");
+        prompt.append("- Maintain consistency with previous answers in the conversation history.\n");
+        prompt.append("- Be concise and accurate.");
+
+        return prompt.toString();
     }
 
     private int sanitizeBound(Integer value, int defaultValue, int min, int max) {

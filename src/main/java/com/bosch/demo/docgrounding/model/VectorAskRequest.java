@@ -7,6 +7,9 @@ public record VectorAskRequest(
         String repositoryId,
         String s3Prefix,
         Integer maxChunks,
-        Integer topK
+        Integer topK,
+        String sessionId,
+        Boolean useHistory,
+        Integer historyTurns
 ) { }
 
