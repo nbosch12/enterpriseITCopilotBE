@@ -103,17 +103,19 @@ public class AzureSpringAppLogService {
         }
 
         int safeLimit = Math.max(1, Math.min(limit, 100));
-        String query = buildBusinessQuery(appName, keywordToSearch, timeDuration);
+        String safeDuration = sanitizeTimeDuration(timeDuration);
+        String query = buildBusinessQuery(appName, keywordToSearch, safeDuration);
 
         log.info(
-                "Executing Azure Monitor exception query. App: {}, Limit: {}",
+                "Executing Azure Monitor exception query. App: {}, Limit: {}, TimeDuration: {}",
                 appName,
-                safeLimit
+                safeLimit,
+                safeDuration
         );
 
         return logsQueryClient
                 .queryWorkspace(workspaceId, query, null)
-                .map(result -> parseLogsQueryResult(result, safeLimit))
+                .map(result -> parseLogsQueryResult(result, safeLimit, safeDuration))
                 .switchIfEmpty(
                         Mono.fromSupplier(() ->
                                 createErrorResult(
@@ -166,9 +168,7 @@ public class AzureSpringAppLogService {
     /**
      * Build query to fetch logs from Azure Monitor for today, optionally filtered by app name and keyword.
      */
-    private String buildBusinessQuery(String appName, String keywordToSearch, String timeDuration) {
-
-        String safeDuration = sanitizeTimeDuration(timeDuration);
+    private String buildBusinessQuery(String appName, String keywordToSearch, String safeDuration) {
 
         StringBuilder query = new StringBuilder(
                 "union AppTraces, AppExceptions\n" +
@@ -176,7 +176,7 @@ public class AzureSpringAppLogService {
         );
 
         if (keywordToSearch != null && !keywordToSearch.isBlank()) {
-            query.append("| where SeverityLevel >= 1 ")
+            query.append("| where SeverityLevel >= 1\n")
                     .append("| where Message has \"")
                     .append(keywordToSearch.replace("\"", "\\\""))
                     .append("\"\n");
@@ -278,9 +278,9 @@ public class AzureSpringAppLogService {
     /**
      * Parse Azure Logs Query result and map to our model
      */
-    private LogQueryResult parseLogsQueryResult(LogsQueryResult result, int limit) {
+    private LogQueryResult parseLogsQueryResult(LogsQueryResult result, int limit, String safeDuration) {
         LogQueryResult response = new LogQueryResult();
-        response.setQueryPeriod("Today");
+        response.setQueryPeriod("Last " + safeDuration);
         response.setHasErrors(false);
 
         if (result == null) {
