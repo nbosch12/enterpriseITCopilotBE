@@ -152,3 +152,9 @@ SAP AI Core Orchestration API
 Response: { answer, matches[], rawModelResponse }
 ```
 
+
+## Azure Cosmos DB for MongoDB grounding
+
+The project now also supports curated queries over `qrcodeProcessingReport`, `qrcodePackagingReport`, `scanlog`, and `qrCodesTracking`, then reuses the existing S3 -> SAP AI Core Document Grounding -> orchestration flow.
+
+See [MONGODB_GROUNDING.md](MONGODB_GROUNDING.md) for configuration, query examples, API calls, parent/child joining, and suggested indexes.

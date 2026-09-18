@@ -15,6 +15,7 @@ public class AppProperties {
     private S3 s3 = new S3();
     private SapAiCore sapAiCore = new SapAiCore();
     private AzureMonitor azureMonitor = new AzureMonitor();
+    private CosmosMongo cosmosMongo = new CosmosMongo();
 
     @Setter
     @Getter
@@ -58,6 +59,17 @@ public class AppProperties {
         private String embeddingModelName = "text-embedding-3-large";
         private String embeddingModelVersion = "latest";
         private String vectorSearchPrefix = "chunk-";
+    }
+
+    @Setter
+    @Getter
+    public static class CosmosMongo {
+        private boolean enabled = false;
+        private String uri;
+        private String database;
+        private int connectTimeoutSeconds = 10;
+        private int readTimeoutSeconds = 30;
+        private int maxQueryResults = 500;
     }
 
     @Setter
