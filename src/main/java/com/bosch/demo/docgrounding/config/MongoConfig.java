@@ -1,34 +1,24 @@
 package com.bosch.demo.docgrounding.config;
 
-import com.mongodb.ConnectionString;
-import com.mongodb.MongoClientSettings;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.mongo.MongoClientSettingsBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.concurrent.TimeUnit;
 
+/**
+ * The MongoClient is created by Spring Boot auto-configuration from the standard
+ * {@code spring.data.mongodb.*} properties (host / port / database / uri).
+ * Here we only apply the socket timeouts configured under {@code app.cosmos-mongo}.
+ */
 @Configuration
-@ConditionalOnProperty(prefix = "app.cosmos-mongo", name = "enabled", havingValue = "true")
 public class MongoConfig {
 
-    @Bean(destroyMethod = "close")
-    public MongoClient mongoClient(AppProperties properties) {
-        String uri = properties.getCosmosMongo().getUri();
-        if (uri == null || uri.isBlank()) {
-            throw new IllegalStateException("COSMOS_MONGO_URI/app.cosmos-mongo.uri must be configured when Mongo integration is enabled");
-        }
-
-        ConnectionString connectionString = new ConnectionString(uri);
-        MongoClientSettings settings = MongoClientSettings.builder()
-                .applyConnectionString(connectionString)
-                .applyToSocketSettings(builder -> builder
-                        .connectTimeout(properties.getCosmosMongo().getConnectTimeoutSeconds(), TimeUnit.SECONDS)
-                        .readTimeout(properties.getCosmosMongo().getReadTimeoutSeconds(), TimeUnit.SECONDS))
-                .build();
-
-        return MongoClients.create(settings);
+    @Bean
+    public MongoClientSettingsBuilderCustomizer mongoTimeoutCustomizer(AppProperties properties) {
+        AppProperties.CosmosMongo cfg = properties.getCosmosMongo();
+        return builder -> builder.applyToSocketSettings(socket -> socket
+                .connectTimeout(cfg.getConnectTimeoutSeconds(), TimeUnit.SECONDS)
+                .readTimeout(cfg.getReadTimeoutSeconds(), TimeUnit.SECONDS));
     }
 }

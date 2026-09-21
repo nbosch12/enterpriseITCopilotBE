@@ -16,6 +16,7 @@ public class AppProperties {
     private SapAiCore sapAiCore = new SapAiCore();
     private AzureMonitor azureMonitor = new AzureMonitor();
     private CosmosMongo cosmosMongo = new CosmosMongo();
+    private TrustStore trustStore = new TrustStore();
 
     @Setter
     @Getter
@@ -41,6 +42,32 @@ public class AppProperties {
         private String accessKey;
         private String secretKey;
         private boolean pathStyleAccess = true;
+        private Proxy proxy = new Proxy();
+    }
+
+    /** Optional outbound HTTP proxy (corporate networks answering with HTTP 407). */
+    @Setter
+    @Getter
+    public static class Proxy {
+        private boolean enabled = false;
+        private String host;
+        private int port = 8080;
+        private String username;
+        private String password;
+        /** Comma separated hosts that bypass the proxy. */
+        private String nonProxyHosts;
+    }
+
+    /**
+     * Truststore holding the CA of a TLS-intercepting proxy.
+     * Without it the JDK reports "PKIX path building failed".
+     */
+    @Setter
+    @Getter
+    public static class TrustStore {
+        private String path;
+        private String password = "changeit";
+        private String type = "JKS";
     }
 
     @Setter
@@ -64,9 +91,8 @@ public class AppProperties {
     @Setter
     @Getter
     public static class CosmosMongo {
+        /** Connection details live under spring.data.mongodb.* (host/port/database/uri). */
         private boolean enabled = false;
-        private String uri;
-        private String database;
         private int connectTimeoutSeconds = 10;
         private int readTimeoutSeconds = 30;
         private int maxQueryResults = 500;

@@ -29,4 +29,23 @@ public class GroundingPipelineController {
     public Mono<String> status(@PathVariable String pipelineId) {
         return groundingService.getPipelineStatus(pipelineId);
     }
+
+    @PostMapping("/pipeline/{pipelineId}/trigger")
+    public Mono<String> trigger(
+            @PathVariable String pipelineId) {
+
+        return groundingService.triggerPipeline(pipelineId);
+    }
+
+    @GetMapping("/pipeline/{pipelineId}/documents")
+    public Mono<String> documents(
+            @PathVariable String pipelineId) {
+
+        return groundingService.getPipelineDocuments(pipelineId);
+    }
+
+    @GetMapping("/repositories")
+    public Mono<String> getRepositories() {
+        return groundingService.getDataRepositories();
+    }
 }

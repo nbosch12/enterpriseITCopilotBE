@@ -57,7 +57,8 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- MongoDB Java driver used to query Azure Cosmos DB for MongoDB -->
+        <!-- MongoDB Java driver; Spring Boot's MongoAutoConfiguration builds the
+             MongoClient from the standard spring.data.mongodb.* properties -->
         <dependency>
             <groupId>org.mongodb</groupId>
             <artifactId>mongodb-driver-sync</artifactId>

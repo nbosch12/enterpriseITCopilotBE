@@ -3,6 +3,7 @@ package com.bosch.demo.docgrounding.service;
 import com.bosch.demo.docgrounding.config.AppProperties;
 import com.bosch.demo.docgrounding.model.MongoGroundingQueryRequest;
 import com.bosch.demo.docgrounding.model.MongoGroundingSyncResult;
+import com.mongodb.ConnectionString;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.mongo.MongoProperties;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -43,6 +45,7 @@ public class CosmosMongoGroundingService {
 
     public CosmosMongoGroundingService(
             MongoClient mongoClient,
+            MongoProperties mongoProperties,
             S3ObjectStoreService s3ObjectStoreService,
             ChunkingService chunkingService,
             AppProperties properties) {
@@ -50,11 +53,25 @@ public class CosmosMongoGroundingService {
         this.s3ObjectStoreService = s3ObjectStoreService;
         this.chunkingService = chunkingService;
 
-        String databaseName = properties.getCosmosMongo().getDatabase();
-        if (databaseName == null || databaseName.isBlank()) {
-            throw new IllegalStateException("COSMOS_MONGO_DATABASE/app.cosmos-mongo.database must be configured");
-        }
+        String databaseName = resolveDatabaseName(mongoProperties);
         this.database = mongoClient.getDatabase(databaseName);
+        log.info("Mongo grounding service bound to database '{}'", databaseName);
+    }
+
+    /**
+     * Database name comes from {@code spring.data.mongodb.database}, falling back to the
+     * database segment of {@code spring.data.mongodb.uri}.
+     */
+    private static String resolveDatabaseName(MongoProperties mongoProperties) {
+        String databaseName = mongoProperties.getDatabase();
+        if ((databaseName == null || databaseName.isBlank()) && mongoProperties.getUri() != null) {
+            databaseName = new ConnectionString(mongoProperties.getUri()).getDatabase();
+        }
+        if (databaseName == null || databaseName.isBlank()) {
+            throw new IllegalStateException(
+                    "spring.data.mongodb.database (or a database in spring.data.mongodb.uri) must be configured");
+        }
+        return databaseName;
     }
 
     public MongoGroundingSyncResult prepareGroundingData(MongoGroundingQueryRequest request) {
