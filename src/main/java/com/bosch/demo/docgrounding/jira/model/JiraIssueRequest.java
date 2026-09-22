@@ -13,13 +13,10 @@ public record JiraIssueRequest(Fields fields) {
             IssueType    issuetype,
             Priority     priority,
             String       description,
-            User         assignee,
-            User         reporter,
             List<String> labels
     ) {}
 
     public record Project(String key) {}
     public record IssueType(String name) {}
     public record Priority(String name) {}
-    public record User(String name) {}
 }
