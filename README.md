@@ -157,4 +157,11 @@ Response: { answer, matches[], rawModelResponse }
 
 The project now also supports curated queries over `qrcodeProcessingReport`, `qrcodePackagingReport`, `scanlog`, and `qrCodesTracking`, then reuses the existing S3 -> SAP AI Core Document Grounding -> orchestration flow.
 
+All grounding data (Docupedia and MongoDB) goes into **one** vector repository, configured with
+`app.grounding.repository-id`. `/api/vector/ask` no longer needs a `repositoryId`.
+
+Counting and ranking questions ("which plant received the most QR codes in the 1st week of August
+2026") are answered exactly from MongoDB rather than by retrieval, and `/api/mongodb/diagnostics/coverage`
+explains any day that reports no data.
+
 See [MONGODB_GROUNDING.md](MONGODB_GROUNDING.md) for configuration, query examples, API calls, parent/child joining, and suggested indexes.

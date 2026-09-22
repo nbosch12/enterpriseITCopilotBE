@@ -5,12 +5,16 @@ import com.bosch.demo.docgrounding.model.ConversationTurn;
 import com.bosch.demo.docgrounding.model.VectorAskRequest;
 import com.bosch.demo.docgrounding.model.VectorAskResponse;
 import com.bosch.demo.docgrounding.model.VectorMatch;
+import com.bosch.demo.docgrounding.model.analytics.AnalyticsQuery;
+import com.bosch.demo.docgrounding.model.analytics.AnalyticsResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -29,18 +33,38 @@ public class AiCoreVectorSearchService {
     private final AiCoreTokenService tokenService;
     private final ObjectMapper objectMapper;
     private final ConversationMemoryService conversationMemoryService;
+    private final GroundingRepositoryService repositoryService;
+    private final AnalyticsQuestionParser questionParser;
+    private final ObjectProvider<QrCodeAnalyticsService> analyticsServiceProvider;
 
+    /** Kept for existing callers and unit tests that construct the service without the new collaborators. */
     public AiCoreVectorSearchService(
             WebClient.Builder builder,
             AppProperties properties,
             AiCoreTokenService tokenService,
             ObjectMapper objectMapper,
             ConversationMemoryService conversationMemoryService) {
+        this(builder, properties, tokenService, objectMapper, conversationMemoryService, null, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiCoreVectorSearchService(
+            WebClient.Builder builder,
+            AppProperties properties,
+            AiCoreTokenService tokenService,
+            ObjectMapper objectMapper,
+            ConversationMemoryService conversationMemoryService,
+            GroundingRepositoryService repositoryService,
+            AnalyticsQuestionParser questionParser,
+            ObjectProvider<QrCodeAnalyticsService> analyticsServiceProvider) {
 
         this.properties = properties;
         this.tokenService = tokenService;
         this.objectMapper = objectMapper;
         this.conversationMemoryService = conversationMemoryService;
+        this.repositoryService = repositoryService;
+        this.questionParser = questionParser;
+        this.analyticsServiceProvider = analyticsServiceProvider;
 
         String apiUrl = properties.getSapAiCore().getApiUrl();
         if (apiUrl == null || apiUrl.isBlank()) {
@@ -59,25 +83,33 @@ public class AiCoreVectorSearchService {
                     null));
         }
 
-        // Determine repository ID - prefer repositoryId, fallback to s3Prefix
-        final String repositoryId;
-        String reqRepositoryId = request.repositoryId();
-        if (reqRepositoryId != null && !reqRepositoryId.isBlank()) {
-            repositoryId = reqRepositoryId;
-        } else {
-            String s3Prefix = request.s3Prefix();
-            if (s3Prefix != null && !s3Prefix.isBlank()) {
-                repositoryId = s3Prefix;
-            } else {
-                return Mono.just(new VectorAskResponse(
-                        "Vector search failed: repositoryId or s3Prefix must be provided",
-                        List.of(),
-                        "",
-                        request.sessionId()));
+        final String sessionId = request.sessionId();
+
+        // Counting and ranking questions are computed in MongoDB, never retrieved. Top-k retrieval
+        // shows the model only a few chunks, so a month-wide "which plant received the most" is
+        // answered from a fraction of the data and lands on the wrong winner.
+        Optional<VectorAskResponse> analyticsAnswer = tryAnalytics(request);
+        if (analyticsAnswer.isPresent()) {
+            VectorAskResponse response = analyticsAnswer.get();
+            if (sessionId != null && !sessionId.isBlank()) {
+                conversationMemoryService.addUserTurn(sessionId, request.question());
+                conversationMemoryService.addAssistantTurn(sessionId, response.answer());
             }
+            return Mono.just(response);
         }
 
-        final String sessionId = request.sessionId();
+        // Every retrieval query runs against the one configured vector repository.
+        final String repositoryId;
+        try {
+            repositoryId = resolveRepositoryId(request);
+        } catch (RuntimeException ex) {
+            return Mono.just(new VectorAskResponse(
+                    "Vector search failed: " + ex.getMessage(),
+                    List.of(),
+                    "",
+                    sessionId));
+        }
+
         final boolean useHistory = request.useHistory() == null || request.useHistory();
         final int topK = sanitizeBound(request.topK(), DEFAULT_TOP_K, 1, 20);
         final int historyTurns = sanitizeBound(request.historyTurns(), DEFAULT_HISTORY_TURNS, 0, 20);
@@ -212,12 +244,102 @@ public class AiCoreVectorSearchService {
             // Extract grounding matches/context from response
             List<VectorMatch> matches = extractGroundingMatches(responseBody);
 
-            return new VectorAskResponse(answer, matches, responseBody, sessionId);
+            return new VectorAskResponse(
+                    answer, matches, responseBody, sessionId, "vector-search", null, repositoryId);
 
         } catch (Exception ex) {
             log.error("Grounding query failed", ex);
             throw new RuntimeException("Grounding search error: " + ex.getMessage(), ex);
         }
+    }
+
+    /**
+     * Resolve the repository for a retrieval query.
+     *
+     * <p>With {@code app.grounding.enforce-single-repository} on, the configured repository always
+     * wins, so a stale repositoryId cached in a UI cannot quietly send queries at an old index.</p>
+     */
+    private String resolveRepositoryId(VectorAskRequest request) {
+        String requested = request.repositoryId();
+        if (requested == null || requested.isBlank()) {
+            requested = request.s3Prefix();
+        }
+
+        if (repositoryService != null) {
+            return repositoryService.resolveRepositoryId(requested);
+        }
+        if (requested != null && !requested.isBlank()) {
+            return requested;
+        }
+        throw new IllegalStateException("repositoryId or s3Prefix must be provided, "
+                + "or app.grounding.repository-id must be configured");
+    }
+
+    /**
+     * Answer the question from MongoDB when it is a counting or ranking question.
+     *
+     * @return the computed answer, a request for the missing period, or empty to fall through to
+     *         retrieval
+     */
+    private Optional<VectorAskResponse> tryAnalytics(VectorAskRequest request) {
+        if (Boolean.TRUE.equals(request.forceVectorSearch())
+                || questionParser == null
+                || analyticsServiceProvider == null) {
+            return Optional.empty();
+        }
+
+        AppProperties.Analytics config = properties.getAnalytics();
+        if (config == null || !config.isEnabled() || !config.isRouteVectorAsk()) {
+            return Optional.empty();
+        }
+
+        QrCodeAnalyticsService analyticsService = analyticsServiceProvider.getIfAvailable();
+        if (analyticsService == null) {
+            return Optional.empty();
+        }
+
+        String weekMode = config.getWeekOfMonthMode();
+        Optional<AnalyticsQuery> query = questionParser.parse(request.question(), weekMode);
+
+        if (query.isEmpty()) {
+            if (questionParser.requiresPeriodClarification(request.question(), weekMode)) {
+                return Optional.of(new VectorAskResponse(
+                        periodClarification(),
+                        List.of(),
+                        "",
+                        request.sessionId(),
+                        "mongo-analytics",
+                        null,
+                        null));
+            }
+            return Optional.empty();
+        }
+
+        try {
+            AnalyticsResult result = analyticsService.rank(query.get());
+            return Optional.of(new VectorAskResponse(
+                    result.answer(),
+                    List.of(),
+                    "",
+                    request.sessionId(),
+                    "mongo-analytics",
+                    result,
+                    null));
+        } catch (RuntimeException ex) {
+            // A broken aggregation should degrade to retrieval rather than fail the request.
+            log.warn("Analytics routing failed, falling back to vector search: {}", ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private String periodClarification() {
+        return """
+                I can answer that exactly, but I need the period. Tell me one of:
+                  - a month, e.g. "August 2026" or "2026-08"
+                  - a week of a month, e.g. "1st week of August 2026" or "week 3 of August 2026"
+                  - a single day, e.g. "2 August 2026" or "2026-08-02"
+                For example: "Which plant received the highest number of records in the 1st week of August 2026?"\
+                """;
     }
 
     private String extractAnswer(String responseBody) {

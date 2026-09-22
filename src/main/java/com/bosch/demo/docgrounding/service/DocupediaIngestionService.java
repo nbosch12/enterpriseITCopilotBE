@@ -26,18 +26,35 @@ public class DocupediaIngestionService {
     private final HtmlToTextService htmlToTextService;
     private final ChunkingService chunkingService;
     private final S3ObjectStoreService s3ObjectStoreService;
+    private final GroundingRepositoryService repositoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** Kept for existing callers and tests; writes directly under the bucket root. */
     public DocupediaIngestionService(
             DocupediaClientService docupediaClientService,
             HtmlToTextService htmlToTextService,
             ChunkingService chunkingService,
             S3ObjectStoreService s3ObjectStoreService) {
+        this(docupediaClientService, htmlToTextService, chunkingService, s3ObjectStoreService, null);
+    }
+
+    /**
+     * Docupedia chunks are written under the same grounding root as MongoDB data, so the single
+     * pipeline include path picks up both and one vector repository serves every question.
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    public DocupediaIngestionService(
+            DocupediaClientService docupediaClientService,
+            HtmlToTextService htmlToTextService,
+            ChunkingService chunkingService,
+            S3ObjectStoreService s3ObjectStoreService,
+            GroundingRepositoryService repositoryService) {
 
         this.docupediaClientService = docupediaClientService;
         this.htmlToTextService = htmlToTextService;
         this.chunkingService = chunkingService;
         this.s3ObjectStoreService = s3ObjectStoreService;
+        this.repositoryService = repositoryService;
     }
 
     public SyncResult syncSpace(String spaceKey) {
@@ -66,7 +83,8 @@ public class DocupediaIngestionService {
         int failedPages = 0;
         Set<String> failedPageIds = new HashSet<>();
 
-        String prefix = "docupedia/" + sanitize(spaceKey);
+        String prefix = (repositoryService == null ? "" : repositoryService.rootPrefix())
+                + "docupedia/" + sanitize(spaceKey);
 
         int effectiveDepth = normalizeChildDepth(childDepth);
         String effectiveRootPageId = normalizeRootPageId(rootPageId);
