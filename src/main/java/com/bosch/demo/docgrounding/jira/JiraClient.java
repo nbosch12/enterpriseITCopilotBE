@@ -80,28 +80,36 @@ public class JiraClient {
     }
 
     public JiraIssueResponse createIssue(JiraTicketPayload payload, String projectKey, String snId) {
-        JiraIssueRequest.User user = new JiraIssueRequest.User(props.getUsername());
         JiraIssueRequest request = new JiraIssueRequest(new JiraIssueRequest.Fields(
                 new JiraIssueRequest.Project(projectKey),
                 payload.summary(),
                 new JiraIssueRequest.IssueType(resolveIssueType(payload.issueType())),
                 new JiraIssueRequest.Priority(mapPriority(payload.priority())),
                 payload.description(),
-                user, user,
                 List.of(SN_LABEL_PREFIX + snId)));
         try {
+            String requestJson = objectMapper.writeValueAsString(request);
+            log.info("Jira create-issue request payload: {}", requestJson);
             String body = webClient.post()
                     .uri(URI.create(apiUrl("/rest/api/2/issue")))
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + props.getPat())
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
+                    .onStatus(status -> status.isError(), response ->
+                            response.bodyToMono(String.class).flatMap(errorBody -> {
+                                log.error("Jira API error {}: {}", response.statusCode(), errorBody);
+                                return Mono.error(new RuntimeException(
+                                        "Jira API " + response.statusCode() + ": " + errorBody));
+                            }))
                     .bodyToMono(String.class)
                     .block();
             JsonNode root = objectMapper.readTree(body);
             String key    = root.path("key").asText();
             return new JiraIssueResponse(key, root.path("id").asText(),
                     props.getBaseUrl() + "/browse/" + key);
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Failed to create Jira issue: " + e.getMessage(), e);
         }
