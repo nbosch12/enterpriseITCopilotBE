@@ -49,3 +49,27 @@ app:
     tenant-id: ${AZURE_TENANT_ID:0ae51e19-07c8-4e4b-bb6d-648ee58410f4}
     client-id: ${AZURE_CLIENT_ID:}
     client-secret: ${AZURE_CLIENT_SECRET:}
+
+# ── ServiceNow → AI → Jira Pipeline ───────────────────────────────────────────
+servicenow:
+  base-url: ${SERVICENOW_BASE_URL:https://mock.service-now.com}
+  username: ${SERVICENOW_USERNAME:mock}
+  password: ${SERVICENOW_PASSWORD:mock}
+  fetch-limit: ${SERVICENOW_FETCH_LIMIT:50}
+
+jira:
+  base-url: ${JIRA_BASE_URL:https://rb-tracker.bosch.com/tracker03}
+  pat: ${JIRA_PAT:}
+  project-key: ${JIRA_PROJECT_KEY:}
+  username: ${JIRA_USERNAME:}
+
+azure:
+  openai:
+    endpoint: ${AZURE_OPENAI_ENDPOINT:https://mock.openai.azure.com}
+    api-key: ${AZURE_OPENAI_API_KEY:mock-key}
+    deployment: ${AZURE_OPENAI_DEPLOYMENT_NAME:gpt-4}
+
+pipeline:
+  scheduler:
+    enabled: ${PIPELINE_SCHEDULER_ENABLED:true}
+  poll-interval-ms: ${PIPELINE_POLL_INTERVAL_MS:3600000}
