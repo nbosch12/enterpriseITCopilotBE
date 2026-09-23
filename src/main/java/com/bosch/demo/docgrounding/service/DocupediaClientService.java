@@ -79,7 +79,7 @@ public class DocupediaClientService {
         if (result == null) {
             return null;
         }
-
+        log.info("Docupedia response:{} \n", result);
         String pageSpaceKey = extractSpaceKey(result);
         if (expectedSpaceKey != null
                 && !expectedSpaceKey.isBlank()
@@ -166,10 +166,24 @@ public class DocupediaClientService {
     }
 
     private WebClient buildWebClient() {
+        String baseUrl = properties.getDocupedia().getBaseUrl();
+        String token = properties.getDocupedia().getBearerToken();
+
+        // Diagnostic log to identify token source and validity
+        if (token != null && !token.isBlank()) {
+            String tokenPreview = token.length() > 8 ? token.substring(0, 8) + "..." : token;
+            log.info("Docupedia configured: baseUrl={}, tokenLength={}, tokenStart={}",
+                    baseUrl, token.length(), tokenPreview);
+        } else {
+            log.warn("Docupedia token is missing or empty!");
+        }
+
         return webClientBuilder
-                .baseUrl(properties.getDocupedia().getBaseUrl())
+                .baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.AUTHORIZATION,
-                        "Bearer " + properties.getDocupedia().getBearerToken())
+                        "Bearer " + token)
+                .defaultHeader(
+                        HttpHeaders.ACCEPT, "application/json")
                 .build();
     }
 
