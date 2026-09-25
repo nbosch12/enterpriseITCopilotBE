@@ -22,6 +22,8 @@ public class AppProperties {
         private String baseUrl;
         private String bearerToken;
         private int pageSize = 50;
+        private String defaultRepositoryId = "default";
+        private String defaultS3Prefix = "default";
     }
 
     @Setter

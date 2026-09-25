@@ -1,9 +1,26 @@
 package com.bosch.demo.docgrounding.model;
 
-public record IncidentSummaryResponse(
-        String summary,
-        String question,
-        String appName,
-        String timeDuration,
-        int logCount
-) { }
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.util.List;
+
+@Setter
+@Getter
+@AllArgsConstructor
+@NoArgsConstructor
+public class IncidentSummaryResponse {
+    private String question;
+    private String title;
+    private String overallSeverity;
+    private String summary;
+    private List<String> impactedApps;
+    private List<String> likelyCauses;
+    private List<String> recommendedActions;
+    private List<String> keyObservations;
+    private boolean usedFallback;
+    private String rawModelResponse;
+    private LogQueryResult sourceLogs;
+}
