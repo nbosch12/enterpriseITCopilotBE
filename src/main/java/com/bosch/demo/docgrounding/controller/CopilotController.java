@@ -2,12 +2,16 @@ package com.bosch.demo.docgrounding.controller;
 
 import com.bosch.demo.docgrounding.model.CopilotAskRequest;
 import com.bosch.demo.docgrounding.model.CopilotAskResponse;
+import com.bosch.demo.docgrounding.service.ConversationMemoryService;
 import com.bosch.demo.docgrounding.service.CopilotOrchestrationService;
 import com.bosch.demo.docgrounding.service.ToolRegistryService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
+
+import java.util.Map;
 
 /**
  * Unified orchestration controller that serves as the single entry point for all copilot queries.
@@ -29,11 +33,14 @@ public class CopilotController {
 
     private final CopilotOrchestrationService orchestrationService;
     private final ToolRegistryService toolRegistry;
+    private final ConversationMemoryService conversationMemory;
 
     public CopilotController(CopilotOrchestrationService orchestrationService,
-                             ToolRegistryService toolRegistry) {
+                             ToolRegistryService toolRegistry,
+                             ConversationMemoryService conversationMemory) {
         this.orchestrationService = orchestrationService;
         this.toolRegistry = toolRegistry;
+        this.conversationMemory = conversationMemory;
     }
 
     /**
@@ -93,5 +100,46 @@ public class CopilotController {
     public Mono<String> health() {
         int toolCount = toolRegistry.getAllTools().size();
         return Mono.just("Copilot orchestration layer is healthy. " + toolCount + " tools registered.");
+    }
+
+    // -------------------------------------------------------------------------
+    // Session / conversation history management
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns metadata about a conversation session.
+     *
+     * <p>Useful for the frontend to know whether there is existing history before
+     * deciding to show a "continue conversation" option.
+     *
+     * <pre>GET /api/copilot/session/{sessionId}</pre>
+     */
+    @GetMapping("/session/{sessionId}")
+    public Mono<ResponseEntity<Map<String, Object>>> getSessionInfo(@PathVariable String sessionId) {
+        int turns = conversationMemory.getSessionSize(sessionId);
+        Map<String, Object> info = Map.of(
+                "sessionId", sessionId,
+                "turns", turns,
+                "hasHistory", turns > 0
+        );
+        log.debug("Session info requested for {}: {} turns", sessionId, turns);
+        return Mono.just(ResponseEntity.ok(info));
+    }
+
+    /**
+     * Clears the conversation history for a session.
+     *
+     * <p>Call this when the user starts a fresh conversation or logs out.
+     *
+     * <pre>DELETE /api/copilot/session/{sessionId}</pre>
+     */
+    @DeleteMapping("/session/{sessionId}")
+    public Mono<ResponseEntity<Map<String, Object>>> clearSession(@PathVariable String sessionId) {
+        conversationMemory.clearSession(sessionId);
+        log.info("Session {} cleared by request", sessionId);
+        return Mono.just(ResponseEntity.ok(Map.of(
+                "sessionId", sessionId,
+                "cleared", true
+        )));
     }
 }

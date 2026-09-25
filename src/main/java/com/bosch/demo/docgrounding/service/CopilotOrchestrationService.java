@@ -1,6 +1,7 @@
 package com.bosch.demo.docgrounding.service;
 
 import com.bosch.demo.docgrounding.config.AppProperties;
+import com.bosch.demo.docgrounding.model.ConversationTurn;
 import com.bosch.demo.docgrounding.model.CopilotAskRequest;
 import com.bosch.demo.docgrounding.model.CopilotAskResponse;
 import com.bosch.demo.docgrounding.model.ToolRequest;
@@ -149,30 +150,58 @@ public class CopilotOrchestrationService {
     // Response Synthesis
     // -------------------------------------------------------------------------
 
-    private Mono<CopilotAskResponse> synthesizeResponse(CopilotAskRequest request, 
+    private Mono<CopilotAskResponse> synthesizeResponse(CopilotAskRequest request,
                                                         List<ToolResult> toolResults,
                                                         List<String> processingNotes) {
-        // Add conversation history if requested
-        String conversationContext = "";
-        if (Boolean.TRUE.equals(request.useHistory()) && request.sessionId() != null) {
-            int turns = request.historyTurns() != null ? request.historyTurns() : 6;
-            var history = conversationMemory.getRecentTurns(request.sessionId(), turns);
+        boolean useHistory = Boolean.TRUE.equals(request.useHistory());
+        int historyTurns   = request.historyTurns() != null ? request.historyTurns() : 6;
+
+        // Build the full message list for the LLM: system → history → tool context → user question
+        List<Map<String, Object>> messages = new ArrayList<>();
+
+        // 1. System prompt
+        messages.add(Map.of(
+                "role", "system",
+                "content", "You are an enterprise IT support assistant. " +
+                           "Answer the user's question based on the context retrieved from backend systems. " +
+                           "Be specific, actionable, and concise. " +
+                           "If you refer to previous conversation turns, make it natural and coherent."));
+
+        // 2. Conversation history (proper role-separated turns, not a flat blob)
+        if (useHistory && request.sessionId() != null && !request.sessionId().isBlank()) {
+            List<ConversationTurn> history = conversationMemory.getRecentTurns(request.sessionId(), historyTurns);
+            for (ConversationTurn turn : history) {
+                messages.add(Map.of("role", turn.role(), "content", turn.content()));
+            }
             if (!history.isEmpty()) {
-                conversationContext = history.stream()
-                        .map(turn -> turn.role() + ": " + turn.content())
-                        .collect(Collectors.joining("\n"));
-                conversationContext = "Previous conversation:\n" + conversationContext + "\n\n";
+                processingNotes.add("Included " + history.size() + " history turns from session " + request.sessionId());
+                log.debug("[Orchestration] Injected {} history turns for session {}", history.size(), request.sessionId());
             }
         }
 
-        String combinedContext = buildCombinedContext(request.question(), toolResults, conversationContext);
-        
-        return llmClient.summarizeIncident(combinedContext)
+        // 3. Tool context injected as a user-side context block (before the actual question)
+        String toolContext = buildToolContext(toolResults);
+        if (!toolContext.isBlank()) {
+            messages.add(Map.of(
+                    "role", "user",
+                    "content", "Here is the latest information retrieved from backend systems:\n\n" + toolContext));
+            messages.add(Map.of(
+                    "role", "assistant",
+                    "content", "Understood. I have reviewed the information from the backend systems and I am ready to answer."));
+        }
+
+        // 4. The actual user question
+        messages.add(Map.of("role", "user", "content", request.question()));
+
+        log.debug("[Orchestration] Sending {} messages to LLM (session: {})", messages.size(), request.sessionId());
+
+        return llmClient.chat(messages)
                 .map(answer -> {
-                    // Save to conversation memory
-                    if (request.sessionId() != null) {
+                    // Persist both sides of this turn for future requests
+                    if (request.sessionId() != null && !request.sessionId().isBlank()) {
                         conversationMemory.addUserTurn(request.sessionId(), request.question());
                         conversationMemory.addAssistantTurn(request.sessionId(), answer);
+                        log.debug("[Orchestration] Saved turn to session {}", request.sessionId());
                     }
 
                     return new CopilotAskResponse(
@@ -186,28 +215,18 @@ public class CopilotOrchestrationService {
                 .onErrorReturn(buildErrorResponse(request, toolResults, processingNotes));
     }
 
-    private String buildCombinedContext(String question, List<ToolResult> toolResults, String conversationContext) {
-        StringBuilder context = new StringBuilder();
-        
-        context.append("You are an enterprise IT support assistant. Answer the user's question based on the following context.\n\n");
-        
-        if (!conversationContext.isBlank()) {
-            context.append(conversationContext);
-        }
-        
-        context.append("User Question: ").append(question).append("\n\n");
-        
-        context.append("Available Information:\n");
+    /**
+     * Formats tool results into a readable context block injected before the user question.
+     */
+    private String buildToolContext(List<ToolResult> toolResults) {
+        StringBuilder sb = new StringBuilder();
         for (ToolResult result : toolResults) {
             if (result.success() && result.summary() != null && !result.summary().isBlank()) {
-                context.append("From ").append(result.toolName()).append(":\n");
-                context.append(result.summary()).append("\n\n");
+                sb.append("--- ").append(result.toolName()).append(" ---\n");
+                sb.append(result.summary()).append("\n\n");
             }
         }
-        
-        context.append("Please provide a comprehensive answer that synthesizes this information. Be specific and actionable.");
-        
-        return context.toString();
+        return sb.toString().trim();
     }
 
     // -------------------------------------------------------------------------

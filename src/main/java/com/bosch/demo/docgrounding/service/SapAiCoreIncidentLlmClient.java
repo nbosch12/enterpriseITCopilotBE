@@ -1,6 +1,7 @@
 package com.bosch.demo.docgrounding.service;
 
 import com.bosch.demo.docgrounding.config.AppProperties;
+import com.bosch.demo.docgrounding.model.ConversationTurn;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,6 +75,64 @@ public class SapAiCoreIncidentLlmClient implements LogIncidentLlmClient {
                                 .flatMap(body -> {
                                     if (response.statusCode().isError()) {
                                         String message = "SAP AI Core incident summary call failed with HTTP "
+                                                + response.statusCode()
+                                                + formatErrorBody(body);
+                                        log.error(message);
+                                        return Mono.error(new IllegalStateException(message));
+                                    }
+                                    return Mono.just(body);
+                                })))
+                .map(this::extractContent);
+    }
+
+    /**
+     * Sends a full multi-turn conversation to the LLM.
+     *
+     * <p>Each entry in {@code messages} must have {@code role} ("system", "user", or "assistant")
+     * and {@code content}. This is the preferred call path for the copilot orchestration layer
+     * because the LLM receives proper conversational context rather than a flattened text blob.</p>
+     *
+     * @param messages ordered list of {role, content} maps
+     * @return the assistant's reply text
+     */
+    public Mono<String> chat(List<Map<String, Object>> messages) {
+        AppProperties.SapAiCore ai = properties.getSapAiCore();
+        if (ai.getApiUrl() == null || ai.getApiUrl().isBlank()) {
+            return Mono.error(new IllegalStateException("app.sap-ai-core.api-url must be configured"));
+        }
+        if (ai.getOrchestrationDeploymentId() == null || ai.getOrchestrationDeploymentId().isBlank()) {
+            return Mono.error(new IllegalStateException("app.sap-ai-core.orchestration-deployment-id must be configured"));
+        }
+
+        Map<String, Object> llmConfig = Map.of(
+                "model_name", ai.getLlmModelName(),
+                "model_params", Map.of("max_tokens", 2000));
+
+        // Pass the messages list directly as the template — SAP AI Core orchestration
+        // accepts a static messages array without templating variables.
+        Map<String, Object> moduleConfigurations = new LinkedHashMap<>();
+        moduleConfigurations.put("llm_module_config", llmConfig);
+        moduleConfigurations.put("templating_module_config", Map.of("template", messages));
+
+        Map<String, Object> requestBody = Map.of(
+                "orchestration_config", Map.of("module_configurations", moduleConfigurations),
+                "input_params", Map.of());
+
+        log.debug("[SapAiCoreIncidentLlmClient] chat() – sending {} messages", messages.size());
+
+        return tokenService.getAccessToken()
+                .flatMap(accessToken -> webClient.post()
+                        .uri("/v2/inference/deployments/{deploymentId}/completion", ai.getOrchestrationDeploymentId())
+                        .header("AI-Resource-Group", ai.getResourceGroup())
+                        .headers(headers -> headers.setBearerAuth(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .bodyValue(requestBody)
+                        .exchangeToMono(response -> response.bodyToMono(String.class)
+                                .defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    if (response.statusCode().isError()) {
+                                        String message = "SAP AI Core chat call failed with HTTP "
                                                 + response.statusCode()
                                                 + formatErrorBody(body);
                                         log.error(message);
