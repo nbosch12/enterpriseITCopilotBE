@@ -1,0 +1,125 @@
+server:
+  port: 8055
+
+spring:
+  application:
+    name: docupedia-grounding-btp
+  data:
+    mongodb:
+      # Azure Cosmos DB for MongoDB. Supply the real connection string at runtime via MONGODB_URI
+      # (BTP user-provided service / CF env var). Never commit the account key.
+      #
+      # The placeholder default must be a syntactically valid connection string: the Mongo driver on
+      # the classpath makes Spring Boot auto-configure a MongoClient at startup, and it rejects an
+      # empty value outright. The client is lazy, so with app.cosmos-mongo.enabled=false nothing
+      # ever connects to it - no Cosmos bean is registered to issue a query.
+      uri: ${MONGODB_URI:mongodb://aa-extra-cosmos-db-dev:QgkjzwJJlQ5lCTwWOmbPbpuFauJSlfzfVgNW9HZQfdgx2jsADp7HlhJZJQZV9XO3oRzLDnJhCEN5ACDbrFqHVg==@aa-extra-cosmos-db-dev.mongo.cosmos.azure.com:10255/?ssl=true&replicaSet=globaldb&retrywrites=false&maxIdleTimeMS=120000&appName=@aa-extra-cosmos-db-dev@}
+      database: ${MONGODB_DATABASE:aa-extra-cosmos-db-dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  docupedia:
+    base-url: https://inside-docupedia.bosch.com/confluence
+    bearer-token: ${DOCUPEDIA_BEARER_TOKEN:}
+    page-size: ${DOCUPEDIA_PAGE_SIZE:100}
+  chunking:
+    max-chars: ${CHUNK_MAX_CHARS:3000}
+    overlap-chars: ${CHUNK_OVERLAP_CHARS:300}
+  s3:
+    endpoint: ${S3_ENDPOINT:https://s3-eu-central-1.amazonaws.com}
+    region: ${S3_REGION:eu-central-1}
+    bucket: ${S3_BUCKET:hcp-b086f813-ced8-4222-b774-f296bb0f2998}
+    access-key: ${S3_ACCESS_KEY:AKIAYMNRCLVD4EXENQLH}
+    secret-key: ${S3_SECRET_KEY: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}
+    path-style-access: ${S3_PATH_STYLE_ACCESS:true}
+  sap-ai-core:
+    token-url: ${AICORE_TOKEN_URL:https://rb-hackathon-d.authentication.eu10.hana.ondemand.com/oauth/token}
+    client-id: ${AICORE_CLIENT_ID:sb-7cd29bda-0e74-4ef4-805b-85eb98ac9d12!b688051|aicore!b540}
+    client-secret: ${AICORE_CLIENT_SECRET:966e1e23-350c-4eba-8c00-6d9eb219a3b8$XeDuCd0_IfwkcButTyiuC6H1cxXGi1x1zmdQ6Ht3CNY=}
+    api-url: ${AICORE_API_URL:https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com}
+    resource-group: ${AICORE_RESOURCE_GROUP:enterprise-it-copilot-rg}
+    s3-generic-secret-name: ${AICORE_S3_GENERIC_SECRET:docu-secret-3}
+    #orchestration-deployment-id: ${AICORE_ORCHESTRATION_DEPLOYMENT_ID:d562142eca427729}
+    embedding-deployment-id: ${AICORE_EMBEDDING_DEPLOYMENT_ID:df3d5376da35d96d}
+    vector-search-prefix: ${AICORE_VECTOR_SEARCH_PREFIX:chunk-}
+    # This is the orchestration deployment ID.
+    # It is used for both /completion and /v2/embeddings.
+    orchestration-deployment-id: ${AICORE_ORCHESTRATION_DEPLOYMENT_ID:d263aa3a04b90a25}
+    # This is the embedding model name inside orchestration config.
+    # Do not put deployment ID here.
+    embedding-model-name: ${AICORE_EMBEDDING_MODEL_NAME:text-embedding-3-large}
+    llm-model-name: gpt-5.6-sol
+  azure-monitor:
+    enabled: ${AZURE_MONITOR_ENABLED:true}
+    workspace-id: ${AZURE_LOG_ANALYTICS_WORKSPACE_ID:8e40d7ec-a1ca-4ae1-aa69-7defed97d6c5}
+    tenant-id: ${AZURE_TENANT_ID:0ae51e19-07c8-4e4b-bb6d-648ee58410f4}
+    client-id: ${AZURE_CLIENT_ID:fe459f83-c993-4175-bfba-d8b3bb88f37e}
+    client-secret: ${AZURE_CLIENT_SECRET:cFo8Q~vRfdvvpd70BCNOlyaqbD25Eo2GMgdxoaPr}
+
+  # ---------------------------------------------------------------------------
+  # Azure Cosmos DB for MongoDB (QR code collections)
+  # Set COSMOS_MONGO_ENABLED=true and MONGODB_URI to activate. When disabled the
+  # Cosmos beans are not registered and the backend behaves exactly as before.
+  # ---------------------------------------------------------------------------
+  cosmos-mongo:
+    enabled: ${COSMOS_MONGO_ENABLED:true}
+    connect-timeout-seconds: ${COSMOS_MONGO_CONNECT_TIMEOUT_SECONDS:10}
+    read-timeout-seconds: ${COSMOS_MONGO_READ_TIMEOUT_SECONDS:30}
+    max-query-results: ${COSMOS_MONGO_MAX_QUERY_RESULTS:500}
+    max-scan-documents: ${COSMOS_MONGO_MAX_SCAN_DOCUMENTS:50000}
+    # AUTO | SERVER | CLIENT_SCAN
+    date-filter-strategy: ${COSMOS_MONGO_DATE_FILTER_STRATEGY:AUTO}
+    processing-date-field: ${COSMOS_MONGO_PROCESSING_DATE_FIELD:storageDate}
+
+  # Deterministic aggregation used to ground counting/ranking questions.
+  analytics:
+    # false turns off computed totals only; Cosmos questions are then answered from records.
+    enabled: ${ANALYTICS_ENABLED:true}
+    upload-rollups: ${ANALYTICS_UPLOAD_ROLLUPS:true}
+    # DAY_BLOCKS: week 1 = days 1-7 | CALENDAR: Monday-Sunday weeks
+    week-of-month-mode: ${ANALYTICS_WEEK_OF_MONTH_MODE:DAY_BLOCKS}
+    tracking-date-field: ${ANALYTICS_TRACKING_DATE_FIELD:packagingDate}
+    tracking-fallback-date-field: ${ANALYTICS_TRACKING_FALLBACK_DATE_FIELD:lastModifiedDate}
+    max-ranked-results: ${ANALYTICS_MAX_RANKED_RESULTS:25}
+    # Bounds on the retrieved context handed to the grounding model.
+    max-context-characters: ${ANALYTICS_MAX_CONTEXT_CHARACTERS:12000}
+    max-context-records: ${ANALYTICS_MAX_CONTEXT_RECORDS:60}
+
+  # Object-store location for MongoDB data exported into the vector repository.
+  grounding:
+    repository-id: ${GROUNDING_REPOSITORY_ID:f0bf939b-59ef-4211-b8f0-db053c46cbad}
+    # Must sit inside the include path of the pipeline that indexes the bucket.
+    # Empty = bucket root. Only affects the export path, not live question answering.
+    root-prefix: ${GROUNDING_ROOT_PREFIX:}
+
+# ── ServiceNow → AI → Jira Pipeline ───────────────────────────────────────────
+
+servicenow:
+  base-url: ${SERVICENOW_BASE_URL:https://mock.service-now.com}
+  username: ${SERVICENOW_USERNAME:mock}
+  password: ${SERVICENOW_PASSWORD:mock}
+  fetch-limit: ${SERVICENOW_FETCH_LIMIT:50}
+  # Zone used to decide which calendar day a mock ticket was created on.
+  timezone: ${SERVICENOW_TIMEZONE:Asia/Kolkata}
+
+jira:
+  base-url: ${JIRA_BASE_URL:https://rb-tracker.bosch.com/tracker03}
+  pat: ${JIRA_PAT:JIRA_PAT:MzY4NTA3NzM4MTkwOjaLfmKmWVfcj+kGO8vyDd5X5vIS}
+  project-key: ${JIRA_PROJECT_KEY:FAB}
+  username: ${JIRA_USERNAME:nin6kor}
+
+azure:
+  openai:
+    endpoint: ${AZURE_OPENAI_ENDPOINT:https://mock.openai.azure.com}
+    api-key: ${AZURE_OPENAI_API_KEY:mock-key}
+    deployment: ${AZURE_OPENAI_DEPLOYMENT_NAME:gpt-4}
+
+pipeline:
+  scheduler:
+    enabled: ${PIPELINE_SCHEDULER_ENABLED:true}
+  poll-interval-ms: ${PIPELINE_POLL_INTERVAL_MS:3600000}
