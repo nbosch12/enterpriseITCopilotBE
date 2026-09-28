@@ -143,6 +143,8 @@ public class CopilotOrchestrationService {
 
         if (request.useHistory() != null)   params.put("useHistory", request.useHistory().toString());
         if (request.historyTurns() != null) params.put("historyTurns", request.historyTurns().toString());
+        // Forwarded so a retrieval tool can honour the caller's requested match count.
+        if (request.topK() != null)         params.put("topK", request.topK().toString());
         return params;
     }
 
@@ -160,12 +162,7 @@ public class CopilotOrchestrationService {
         List<Map<String, Object>> messages = new ArrayList<>();
 
         // 1. System prompt
-        messages.add(Map.of(
-                "role", "system",
-                "content", "You are an enterprise IT support assistant. " +
-                           "Answer the user's question based on the context retrieved from backend systems. " +
-                           "Be specific, actionable, and concise. " +
-                           "If you refer to previous conversation turns, make it natural and coherent."));
+        messages.add(Map.of("role", "system", "content", buildSystemPrompt(toolResults)));
 
         // 2. Conversation history (proper role-separated turns, not a flat blob)
         if (useHistory && request.sessionId() != null && !request.sessionId().isBlank()) {
@@ -216,6 +213,47 @@ public class CopilotOrchestrationService {
     }
 
     /**
+     * Build the system prompt for this turn.
+     *
+     * <p>The base instruction is unchanged. When a tool reports that it supplied retrieved records
+     * as context, strict grounding rules are appended: answers must come from those records only.
+     * A retrieval tool returns rows from a system of record, so an invented figure there reads as
+     * authoritative and is worse than admitting the data does not cover the question.</p>
+     */
+    private String buildSystemPrompt(List<ToolResult> toolResults) {
+        String base = "You are an enterprise IT support assistant. " +
+                      "Answer the user's question based on the context retrieved from backend systems. " +
+                      "Be specific, actionable, and concise. " +
+                      "If you refer to previous conversation turns, make it natural and coherent.";
+
+        if (!hasStrictGroundingContext(toolResults)) {
+            return base;
+        }
+
+        return base + "\n\n" +
+               "The context below was retrieved from a system of record. For anything drawn from it:\n" +
+               "- Use only the supplied records. Do not add figures, names, dates or totals that are not present.\n" +
+               "- Do not estimate, extrapolate or infer values that were not retrieved.\n" +
+               "- If the records do not contain enough information to answer, say so plainly and state what is missing.\n" +
+               "- If the retrieval reports that days or records are missing, mention that alongside any totals you give.\n" +
+               "- Quote figures exactly as they appear in the records.";
+    }
+
+    /**
+     * True when any successful tool marked its payload as retrieved records requiring strict
+     * grounding. Tools that do not set the flag keep the original prompt behaviour.
+     */
+    private boolean hasStrictGroundingContext(List<ToolResult> toolResults) {
+        if (toolResults == null) {
+            return false;
+        }
+        return toolResults.stream()
+                .filter(ToolResult::success)
+                .anyMatch(result -> result.metadata() != null
+                        && Boolean.TRUE.equals(result.metadata().get("strictGrounding")));
+    }
+
+    /**
      * Formats tool results into a readable context block injected before the user question.
      */
     private String buildToolContext(List<ToolResult> toolResults) {
@@ -245,14 +283,29 @@ public class CopilotOrchestrationService {
 
     private CopilotAskResponse buildErrorResponse(CopilotAskRequest request, List<ToolResult> toolResults, List<String> processingNotes) {
         processingNotes.add("LLM synthesis failed - returning partial results");
-        
+
+        // Retrieved records are grounding material, not an answer. If the model could not be
+        // reached, say so rather than pasting raw rows from a system of record into the reply.
+        if (hasStrictGroundingContext(toolResults)) {
+            processingNotes.add("Retrieved records withheld from the answer because the grounding model could not be reached");
+            return new CopilotAskResponse(
+                    "I retrieved the matching records, but the language model that turns them into an "
+                            + "answer could not be reached, so I cannot summarise them right now. "
+                            + "Please retry in a moment. The raw results are available in the tool results "
+                            + "of this response.",
+                    toolResults.stream().map(ToolResult::toolName).collect(Collectors.toList()),
+                    toolResults,
+                    request.sessionId(),
+                    processingNotes);
+        }
+
         // Build a simple fallback answer from tool summaries
         String fallbackAnswer = toolResults.stream()
                 .filter(ToolResult::success)
                 .map(ToolResult::summary)
                 .filter(s -> s != null && !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
-        
+
         if (fallbackAnswer.isBlank()) {
             fallbackAnswer = "I encountered an error processing your request, but no usable information was retrieved.";
         }

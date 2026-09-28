@@ -48,8 +48,8 @@ public class DocupediaGroundingTool implements CopilotTool {
     public String[] keywords() {
         return new String[]{
                 "doc", "docs", "documentation", "docupedia", "wiki", "knowledge",
-                "how", "what", "guide", "tutorial", "runbook", "procedure",
-                "manual", "instructions", "help", "reference", "confluence"
+                "how", "what", "guide", "tutorial", "Tell me", "runbook", "procedure", "reader", "redirect", "manager",
+                "Solace", "conector", "manual", "instructions", "help", "reference", "confluence"
         };
     }
 

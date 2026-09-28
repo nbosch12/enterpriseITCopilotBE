@@ -55,6 +55,17 @@ public class MockServiceNowClient implements ServiceNowClient {
             "Email", "HIGH", "carol.white@example.com", LocalDateTime.now().minusMinutes(30))
     );
 
+    /**
+     * The seeded demo tickets, unfiltered.
+     *
+     * <p>{@link #fetchNewTickets()} is the scheduler's view and deliberately hides tickets already
+     * synced to Jira. The copilot's "which tickets were created today" question needs the full set,
+     * so it reads this instead. Exposing the list changes nothing about the polling behaviour.</p>
+     */
+    public List<ServiceNowTicket> allSeededTickets() {
+        return ALL_TICKETS;
+    }
+
     @Override
     public List<ServiceNowTicket> fetchNewTickets() {
         Set<String> alreadyProcessed = jiraClient.findAlreadyProcessedIds(jiraProperties.getProjectKey());
