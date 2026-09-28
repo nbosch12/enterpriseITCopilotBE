@@ -152,3 +152,15 @@ SAP AI Core Orchestration API
 Response: { answer, matches[], rawModelResponse }
 ```
 
+## Azure Cosmos DB for MongoDB
+
+Questions about the QR code collections (`qrcodeProcessingReport`, `qrcodePackagingReport`,
+`scanlog`, `qrCodesTracking`) are answered through the same `POST /api/copilot/ask` endpoint as
+everything else. The orchestrator routes them to a retrieval tool that queries Cosmos DB, turns the
+matching records into bounded grounding context, and sends that context plus the original question
+to the grounding model; the model writes the answer.
+
+Disabled by default. Set `COSMOS_MONGO_ENABLED=true` and `MONGODB_URI` to switch it on.
+
+See [COSMOS_GROUNDING.md](COSMOS_GROUNDING.md) for the flow, the supported question shapes, the
+context bounds and the error behaviour.

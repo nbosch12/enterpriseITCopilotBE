@@ -17,6 +17,9 @@ import jakarta.validation.constraints.NotBlank;
  * @param repositoryId    Optional vector-search repository ID hint – used when the grounding tool is selected.
  * @param s3Prefix        Optional S3 prefix hint for vector search.
  * @param forceTool       Optional tool name to force-invoke, bypassing the router (e.g. "AZURE_LOGS", "DOCUPEDIA").
+ * @param topK            Optional number of top matches a retrieval tool should return. The frontend
+ *                        already sends this field; declaring it here means the value is honoured
+ *                        rather than silently dropped by lenient deserialisation.
  */
 public record CopilotAskRequest(
         @NotBlank String question,
@@ -27,5 +30,23 @@ public record CopilotAskRequest(
         String timeDuration,
         String repositoryId,
         String s3Prefix,
-        String forceTool
-) {}
+        String forceTool,
+        Integer topK
+) {
+    /**
+     * Kept so existing callers and tests that use the original nine-field shape still compile.
+     */
+    public CopilotAskRequest(
+            String question,
+            String sessionId,
+            Boolean useHistory,
+            Integer historyTurns,
+            String appName,
+            String timeDuration,
+            String repositoryId,
+            String s3Prefix,
+            String forceTool) {
+        this(question, sessionId, useHistory, historyTurns, appName, timeDuration,
+                repositoryId, s3Prefix, forceTool, null);
+    }
+}

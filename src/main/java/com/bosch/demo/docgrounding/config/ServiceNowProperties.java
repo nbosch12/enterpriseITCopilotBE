@@ -16,4 +16,12 @@ public class ServiceNowProperties {
     private String password;
     private int    fetchLimit = 50;
 
+    /**
+     * Zone used to decide which calendar day a ticket was created on.
+     *
+     * <p>Ticket timestamps have no zone of their own, so "created today" is only meaningful against
+     * a stated zone. Defaults to Asia/Kolkata.</p>
+     */
+    private String timezone = "Asia/Kolkata";
+
 }
